@@ -4,6 +4,7 @@
 // </copyright>
 //------------------------------------------------------------------------------
 
+
 #include "stdafx.h"
 #include <vector>
 #include "BackgroundRemovalBasics.h"
@@ -15,6 +16,13 @@
 #include <NuiSensorChooser.h>
 #include <NuiSensorChooserUI.h>
 #include <NuiApi.h>
+
+
+////////////////////////////////////////////
+#include <io.h>  
+#include <fcntl.h>
+////////////////////////////////////////////
+
 
 #define WM_SENSORCHANGED WM_USER + 1
 
@@ -33,8 +41,11 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 /// <returns>status</returns>
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
 {
+	AllocConsole();                     // 打开控制台资源
+	freopen("CONOUT$", "w+t", stdout);// 申请写
     CBackgroundRemovalBasics application;
     application.Run(hInstance, nCmdShow);
+	FreeConsole();
 }
 
 /// <summary>
@@ -45,6 +56,9 @@ CBackgroundRemovalBasics::CBackgroundRemovalBasics() :
     m_hNextColorFrameEvent(INVALID_HANDLE_VALUE),
     m_hNextSkeletonFrameEvent(INVALID_HANDLE_VALUE),
     m_hNextBackgroundRemovedFrameEvent(INVALID_HANDLE_VALUE),
+	///////////////////////////
+	m_hUpdateWindowEvent(INVALID_HANDLE_VALUE),
+	///////////////////////////
     m_pDepthStreamHandle(INVALID_HANDLE_VALUE),
     m_pColorStreamHandle(INVALID_HANDLE_VALUE),
     m_bNearMode(false),
@@ -96,6 +110,11 @@ CBackgroundRemovalBasics::~CBackgroundRemovalBasics()
     delete m_pDrawBackgroundRemovalBasics;
     m_pDrawBackgroundRemovalBasics = NULL;
 
+	delete m_pDrawBackgroundRemovalBasics2;
+	m_pDrawBackgroundRemovalBasics2 = NULL;
+
+
+
     // clean up NSC sensor chooser and its UI control
     delete m_pSensorChooser;
     delete m_pSensorChooserUI;
@@ -117,6 +136,7 @@ CBackgroundRemovalBasics::~CBackgroundRemovalBasics()
 /// <param name="nCmdShow">whether to display minimized, maximized, or normally</param>
 int CBackgroundRemovalBasics::Run(HINSTANCE hInstance, int nCmdShow)
 {
+	printf("窗体程序开始");
     MSG       msg = {0};
     WNDCLASS  wc;//窗口化的原形设置
 
@@ -153,7 +173,15 @@ int CBackgroundRemovalBasics::Run(HINSTANCE hInstance, int nCmdShow)
         NULL,
         (DLGPROC)CBackgroundRemovalBasics::MessageRouter, 
         reinterpret_cast<LPARAM>(this));//主窗口
+	
+	HWND hWndApp2 = CreateDialogParamW(
+		hInstance,//句柄对应于上面的模板句柄
+		MAKEINTRESOURCE(IDD_APP),
+		NULL,
+		(DLGPROC)CBackgroundRemovalBasics::WindowFunction,
+		reinterpret_cast<LPARAM>(this));//主窗口
 
+	m_hWnd2 = hWndApp2;
 
     // Set the init sensor status
 	//设置传感器的状态
@@ -162,14 +190,14 @@ int CBackgroundRemovalBasics::Run(HINSTANCE hInstance, int nCmdShow)
     // Show window
 	//显示主窗口
     ShowWindow(hWndApp, nCmdShow);
-
+	ShowWindow(hWndApp2, nCmdShow);
 	//UpdateWindow如果窗口更新的区域不为空，UpdateWindow函数就发送一个WM_PAINT消息来更新指定窗口的客户区。
 	//函数绕过应用程序的消息队列，直接发送WM_PAINT消息给指定窗口的窗口过程，如果更新区域为空，则不发送消息。
     UpdateWindow(hWndApp);
-
+	UpdateWindow(hWndApp2);
    
 	//事件列表
-    const HANDLE hEvents[] = {m_hNextDepthFrameEvent, m_hNextColorFrameEvent, m_hNextSkeletonFrameEvent, m_hNextBackgroundRemovedFrameEvent};
+    const HANDLE hEvents[] = {m_hNextDepthFrameEvent, m_hNextColorFrameEvent, m_hNextSkeletonFrameEvent, m_hNextBackgroundRemovedFrameEvent,m_hUpdateWindowEvent };
 
 	//加载图片
 	//并获取到图片的信息比如高，宽，像素值
@@ -193,10 +221,15 @@ int CBackgroundRemovalBasics::Run(HINSTANCE hInstance, int nCmdShow)
         {
             // If a dialog message will be taken care of by the dialog proc
 			//判断主窗口是否存在，以及这个消息是否是主窗口的消息，如果是则处理消息，并返回非零值。
-            if ((hWndApp != NULL) && IsDialogMessageW(hWndApp, &msg))
+           
+			if ((hWndApp2 != NULL) && IsDialogMessageW(hWndApp2, &msg))
+			{
+			}
+			if ((hWndApp != NULL) && IsDialogMessageW(hWndApp, &msg))
             {
                 continue;
             }
+			
 			//如果不是主窗口的消息则进行下面的处理
 			//TranslateMessage:将虚拟键消息转换为字符消息。字符消息被送到调用线程的消息队列中，在下一次线程调用函数GetMessage或PeekMessage时被读出
             TranslateMessage(&msg);
@@ -254,6 +287,14 @@ void CBackgroundRemovalBasics::Update()
     {
         ProcessSkeleton();
     }
+
+	//////////////////////////////////////////////////////////////////////////////
+	//等待窗口更新事件，信号发出则执行ProcessSkeleton函数
+	if (WAIT_OBJECT_0 == WaitForSingleObject(m_hUpdateWindowEvent, 0))
+	{
+		UpdateWindows();
+	}
+	//////////////////////////////////////////////////////////////////////////////
 }
 
 /// <summary>
@@ -294,6 +335,12 @@ LRESULT CALLBACK CBackgroundRemovalBasics::MessageRouter(HWND hWnd, UINT uMsg, W
     return 0;
 }
 
+LRESULT CALLBACK CBackgroundRemovalBasics::WindowFunction(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	printf("2窗口有消息");
+	return 0;
+}
+
 /// <summary>
 /// Handle windows messages for the class instance
 /// </summary>
@@ -312,7 +359,7 @@ LRESULT CALLBACK CBackgroundRemovalBasics::DlgProc(HWND hWnd, UINT uMsg, WPARAM 
             // Bind application window handle
 			//绑定窗口句柄，这里就指定为主窗口
             m_hWnd = hWnd;
-
+			
             // Create NuiSensorChooser UI control
             RECT rc;
 			//获取到用户的控制区，以便后面的操作
@@ -341,7 +388,7 @@ LRESULT CALLBACK CBackgroundRemovalBasics::DlgProc(HWND hWnd, UINT uMsg, WPARAM 
             // Create and initialize a new Direct2D image renderer (take a look at ImageRenderer.h)
             // We'll use this to draw the data we receive from the Kinect to the screen
             m_pDrawBackgroundRemovalBasics = new ImageRenderer();
-
+			m_pDrawBackgroundRemovalBasics2 = new ImageRenderer();
 			//GetDlgItem是获取主窗口的视窗，也就是得到到用户的控制区。初始化m_pDrawBackgroundRemovalBasics的区域
 			//为后面的合成提供信息
             hr = m_pDrawBackgroundRemovalBasics->Initialize(GetDlgItem(m_hWnd, IDC_VIDEOVIEW),
@@ -350,6 +397,13 @@ LRESULT CALLBACK CBackgroundRemovalBasics::DlgProc(HWND hWnd, UINT uMsg, WPARAM 
             {
                 SetStatusMessage(L"Failed to initialize the Direct2D draw device.");
             }
+
+			hr = m_pDrawBackgroundRemovalBasics2->Initialize(GetDlgItem(m_hWnd, IDC_VIDEOVIEW),
+				m_pD2DFactory, m_colorWidth, m_colorHeight, m_colorWidth * cBytesPerPixel);
+			if (FAILED(hr))
+			{
+				SetStatusMessage(L"Failed to initialize the Direct2D draw device.");
+			}
 
             // Look for a connected Kinect, and create it if found
 			//创建连接，首次连接
@@ -548,6 +602,8 @@ HRESULT CBackgroundRemovalBasics::ProcessDepth()
     // Lock the frame data so the Kinect knows not to modify it while we're reading it
     pTexture->LockRect(0, &LockedRect, NULL, 0);
 
+
+
     // Make sure we've received valid data, and then present it to the background removed color stream. 
 	if (LockedRect.Pitch != 0)
 	{
@@ -659,6 +715,7 @@ HRESULT  CBackgroundRemovalBasics::ComposeImage()
     }
 
     const BYTE* pBackgroundRemovedColor = bgRemovedFrame.pBackgroundRemovedColorData;
+	
 
     int dataLength = static_cast<int>(m_colorWidth) * static_cast<int>(m_colorHeight) * cBytesPerPixel;
     BYTE alpha = 0;
@@ -686,8 +743,21 @@ HRESULT  CBackgroundRemovalBasics::ComposeImage()
 
     hr = m_pDrawBackgroundRemovalBasics->Draw(m_outputRGBX, m_colorWidth * m_colorHeight * cBytesPerPixel);
 
+	hr = m_pDrawBackgroundRemovalBasics2->Draw(m_outputRGBX, m_colorWidth * m_colorHeight * cBytesPerPixel);
     return hr;
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+HRESULT  CBackgroundRemovalBasics::UpdateWindows()
+{
+	printf("触发窗体2事件");
+	return 0;
+}
+////////////////////////////////////////////////////////////////////////////////
+
+
 
 /// <summary>
 /// Use the sticky player logic to determine the player whom the background removed

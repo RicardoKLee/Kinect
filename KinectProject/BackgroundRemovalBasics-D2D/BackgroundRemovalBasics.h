@@ -45,6 +45,16 @@ public:
     /// <returns>result of message processing</returns>
     static LRESULT CALLBACK MessageRouter(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
+	//////////////////////////////////////////////
+
+	/// <summary>
+	/// Update UpdateWindow
+	/// </summary>
+	static LRESULT CALLBACK WindowFunction(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+	//////////////////////////////////////////////
+
+
     /// <summary>
     /// Handle windows messages for a class instance
     /// </summary>
@@ -70,6 +80,7 @@ public:
 
 private:
     HWND                               m_hWnd;
+	HWND                               m_hWnd2;
     BOOL                               m_bNearMode;
 
     // Current Kinect
@@ -77,6 +88,7 @@ private:
 
     // Direct2D
     ImageRenderer*                     m_pDrawBackgroundRemovalBasics;
+	ImageRenderer*                     m_pDrawBackgroundRemovalBasics2;
     ID2D1Factory*                      m_pD2DFactory;
     
     HANDLE                             m_pDepthStreamHandle;
@@ -85,6 +97,10 @@ private:
     HANDLE                             m_hNextColorFrameEvent;
     HANDLE                             m_hNextSkeletonFrameEvent;
     HANDLE                             m_hNextBackgroundRemovedFrameEvent;
+
+	/////////////////////////////////////////////////////////////////////////////
+	HANDLE                             m_hUpdateWindowEvent;//更新窗口事件
+	/////////////////////////////////////////////////////////////////////////////
 
     BYTE*                              m_backgroundRGBX;
     BYTE*                              m_outputRGBX;
@@ -152,6 +168,10 @@ private:
     /// <returns>S_OK on success, otherwise failure code</returns>
     HRESULT                 ComposeImage();
 
+	/////////////////////////////////////////////////////////////////////////////////
+	HRESULT                 UpdateWindows();
+	/////////////////////////////////////////////////////////////////////////////////
+
 	/// <summary>
     /// Use the sticky player logic to determine the player whom the background removed
 	/// color stream should consider as foreground.
@@ -175,4 +195,7 @@ private:
     /// Update the Nui Sensor Chooser UI control status
     /// </summary>
     void UpdateNscControlStatus();
+
+	
+
 };
